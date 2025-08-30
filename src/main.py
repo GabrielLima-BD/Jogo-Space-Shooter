@@ -26,7 +26,7 @@ SAVE_FILE = os.path.join(BASE_DIR, "save_highscore.json")
 # Player
 PLAYER_SPEED = 6
 PLAYER_COOLDOWN = 300  # ms
-PLAYER_MAX_LIVES = 3
+PLAYER_MAX_LIVES = 4  # Agora o player começa com 4 vidas
 
 # Bullets
 BULLET_SPEED = -9
@@ -58,26 +58,37 @@ def save_highscore(value: int):
         pass
 
 # ---------------- Entities -------------
+
 class Player(pygame.sprite.Sprite):
     def __init__(self, *groups):
         super().__init__(*groups)
         self.image = pygame.image.load(
             os.path.join(BASE_DIR, "assets/ships/player.png")
         ).convert_alpha()
-        self.image = pygame.transform.scale(self.image, (50, 50))  # Player maior
+        self.image = pygame.transform.scale(self.image, (70, 70))
         self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 70))
-        self.speed = PLAYER_SPEED
+        self.base_speed = PLAYER_SPEED
+        self.base_cooldown = PLAYER_COOLDOWN
         self.last_shot = 0
         self.lives = PLAYER_MAX_LIVES
         self.invuln_ms = 0
 
+    def get_speed(self):
+        # Fica mais lento conforme perde vidas
+        return self.base_speed * (0.7 + 0.1 * self.lives)
+
+    def get_cooldown(self):
+        # Tiro mais lento conforme perde vidas
+        return int(self.base_cooldown * (1.0 + 0.15 * (PLAYER_MAX_LIVES - self.lives)))
+
     def update(self, dt, keys):
         dx = 0
+        speed = self.get_speed()
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            dx -= self.speed
+            dx -= speed
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            dx += self.speed
-        self.rect.x += dx
+            dx += speed
+        self.rect.x += int(dx)
 
         if self.rect.left < 20:
             self.rect.left = 20
@@ -89,7 +100,7 @@ class Player(pygame.sprite.Sprite):
 
     def can_shoot(self):
         now = pygame.time.get_ticks()
-        return (now - self.last_shot) >= PLAYER_COOLDOWN
+        return (now - self.last_shot) >= self.get_cooldown()
 
     def shoot(self, bullet_group, all_sprites, sound):
         if not self.can_shoot():
@@ -121,6 +132,33 @@ class Bullet(pygame.sprite.Sprite):
         if self.rect.bottom < 0:
             self.kill()
 
+
+# --------- Explosão ---------
+class Explosion(pygame.sprite.Sprite):
+    def __init__(self, center):
+        super().__init__()
+        # Animação simples: círculos coloridos
+        self.frames = []
+        for r, color in zip([10, 18, 26, 34], [(255,200,60), (255,120,40), (255,40,40), (255,255,255)]):
+            surf = pygame.Surface((40,40), pygame.SRCALPHA)
+            pygame.draw.circle(surf, color, (20,20), r//2)
+            self.frames.append(surf)
+        self.frame = 0
+        self.image = self.frames[self.frame]
+        self.rect = self.image.get_rect(center=center)
+        self.last_update = pygame.time.get_ticks()
+        self.frame_rate = 50
+
+    def update(self, dt):
+        now = pygame.time.get_ticks()
+        if now - self.last_update > self.frame_rate:
+            self.last_update = now
+            self.frame += 1
+            if self.frame >= len(self.frames):
+                self.kill()
+            else:
+                self.image = self.frames[self.frame]
+
 class EnemyBase(pygame.sprite.Sprite):
     def __init__(self, image_path, health, speed, size):
         super().__init__()
@@ -147,24 +185,24 @@ class EnemyBase(pygame.sprite.Sprite):
 
 class EnemyEasy(EnemyBase):
     def __init__(self):
-        super().__init__("assets/ships/EnemyEasy.png", 1, 2, (40, 40))
+        super().__init__("assets/ships/EnemyEasy.png", 1, 2, (55, 55))
 
 class EnemyMedium(EnemyBase):
     def __init__(self):
-        super().__init__("assets/ships/EnemyMedium.png", 3, 2, (55, 55))
+        super().__init__("assets/ships/EnemyMedium.png", 3, 2, (75, 75))
 
 class EnemyHard(EnemyBase):
     def __init__(self):
-        super().__init__("assets/ships/EnemyHard.png", 5, 1, (75, 75))
+        super().__init__("assets/ships/EnemyHard.png", 5, 1, (100, 100))
 
 class StarField:
-    def __init__(self, n=40):
+    def __init__(self, n=90):
         self.stars = []
         for _ in range(n):
             x = random.randint(0, WIDTH)
             y = random.randint(0, HEIGHT)
-            s = random.choice([1, 2])  # estrelas menores
-            speed = random.uniform(0.5, 1.2) * s
+            s = random.choice([2, 3])  # estrelas maiores
+            speed = random.uniform(0.8, 1.8) * s
             self.stars.append([x, y, s, speed])
 
     def update(self, dt):
@@ -188,14 +226,21 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
 
-        # Sons
-        self.shoot_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/gunplayer.mp3"))
-        self.dead_player_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/deadplayer.mp3"))
-        self.dead_enemy_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/deadenemy.mp3"))
-        self.start_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/gamestart.mp3"))
-        self.music = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/musicgame.mp3"))
-        self.music.set_volume(0.3)
-        self.music.play(-1)
+        # Sons e música
+        self.shoot_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/lasershoot.mp3"))
+        self.dead_player_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/deadplayer.wav"))
+        self.dead_enemy_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/explosiondeadenemy.mp3"))
+    # self.start_sound removido: musicgame.mp3 só deve ser controlado pelo mixer.music
+        self.record_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "assets/sounds/superourecord.mp3"))
+        self.shoot_sound.set_volume(0.25)
+        self.dead_enemy_sound.set_volume(0.5)
+        self.dead_player_sound.set_volume(0.35)
+    # self.start_sound removido
+        self.record_sound.set_volume(0.3)
+        pygame.mixer.music.load(os.path.join(BASE_DIR, "assets/sounds/musicgame.mp3"))
+
+        pygame.mixer.music.set_volume(0.08)
+        pygame.mixer.music.play(-1)
 
         # Fontes
         self.font_sm = pygame.font.SysFont("arial", 18)
@@ -205,6 +250,10 @@ class Game:
         self.reset()
 
     def reset(self):
+        # Corrige bug de música duplicada ao reiniciar
+        pygame.mixer.music.stop()
+        pygame.mixer.music.play(-1)
+
         self.all_sprites = pygame.sprite.Group()
         self.bullets = pygame.sprite.Group()
         self.enemies = pygame.sprite.Group()
@@ -222,7 +271,7 @@ class Game:
         self._last_enemy = 0
         self._last_hard_spawn = 0  # Corrige crash ao atingir 100 pontos
 
-        self.start_sound.play()
+    # Removido: não tocar musicgame.mp3 como Sound, só pelo mixer.music
         
     def spawn_enemy(self):
         now = pygame.time.get_ticks()
@@ -296,6 +345,7 @@ class Game:
                 self.player.shoot(self.bullets, self.all_sprites, self.shoot_sound)
         return keys
 
+
     def update(self, dt, keys):
         if self.game_over or self.paused:
             return
@@ -316,6 +366,9 @@ class Game:
         self.bullets.update(dt)
         self.enemies.update(dt)
         self.starfield.update(dt)
+        # Atualiza explosões
+        if hasattr(self, 'explosions'):
+            self.explosions.update(dt)
 
         # Colisões: bala x inimigo
         for bullet in self.bullets:
@@ -323,7 +376,17 @@ class Game:
             for enemy in hits:
                 if enemy.hit():
                     self.dead_enemy_sound.play()
-                    self.score += 10
+                    # Pontuação diferenciada
+                    if isinstance(enemy, EnemyEasy):
+                        self.score += 2
+                    elif isinstance(enemy, EnemyMedium):
+                        self.score += 5
+                    elif isinstance(enemy, EnemyHard):
+                        self.score += 10
+                    # Animação de explosão
+                    if not hasattr(self, 'explosions'):
+                        self.explosions = pygame.sprite.Group()
+                    self.explosions.add(Explosion(enemy.rect.center))
                 bullet.kill()
 
         # Colisões: player x inimigo
@@ -336,9 +399,32 @@ class Game:
 
     def _end_game(self):
         self.game_over = True
+        # Para a música ao morrer
+        pygame.mixer.music.stop()
         if self.score > self.highscore:
             self.highscore = self.score
             save_highscore(self.highscore)
+            self.record_sound.play()
+
+
+    def draw_heart(self, x, y):
+        # Desenha um coração pixelado (blit de quadrados)
+        surf = pygame.Surface((18, 16), pygame.SRCALPHA)
+        heart = [
+            "..11..11..",
+            ".11111111.",
+            "1111111111",
+            "1111111111",
+            ".11111111.",
+            "..111111..",
+            "...1111...",
+            "....11...."
+        ]
+        for j, row in enumerate(heart):
+            for i, c in enumerate(row):
+                if c == '1':
+                    pygame.draw.rect(surf, (255, 60, 90), (i+1, j+2, 2, 2))
+        self.screen.blit(surf, (x, y))
 
     def draw_hud(self):
         score_s = self.font_md.render(f"Score: {self.score}", True, WHITE)
@@ -347,8 +433,7 @@ class Game:
         self.screen.blit(hs_s, (16, 44))
 
         for i in range(self.player.lives):
-            pygame.draw.polygon(self.screen, GREEN,
-                                [(WIDTH-30 - i*22, 20), (WIDTH-22 - i*22, 36), (WIDTH-38 - i*22, 36)])
+            self.draw_heart(WIDTH-30 - i*22, 18)
 
         if self.paused:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -369,10 +454,14 @@ class Game:
         s2 = self.font_sm.render("Pressione R para reiniciar", True, WHITE)
         self.screen.blit(s2, s2.get_rect(center=(WIDTH//2, HEIGHT//2 + 44)))
 
+
     def draw(self):
         self.screen.fill(BG)
         self.starfield.draw(self.screen)
         self.all_sprites.draw(self.screen)
+        # Desenha explosões
+        if hasattr(self, 'explosions'):
+            self.explosions.draw(self.screen)
         self.draw_hud()
         if self.game_over:
             self.draw_gameover()

@@ -1,0 +1,19 @@
+# Space Shooter - Git Ignore
+# Não ignore assets do jogo!
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VSCode
+.vscode/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Não ignore assets!
+!src/assets/ships/*
+!src/assets/sounds/*
